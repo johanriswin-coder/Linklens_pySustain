@@ -1,0 +1,7 @@
+[theme]
+base = "dark"
+primaryColor = "#FFD60A"
+backgroundColor = "#050B1F"
+secondaryBackgroundColor = "#0B1736"
+textColor = "#E6ECFF"
+font = "Space Grotesk"
