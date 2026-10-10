@@ -1,0 +1,3 @@
+streamlit>=1.36
+python-whois>=0.9
+# flask>=3.0   (only needed if you run the Flask version, app.py)
