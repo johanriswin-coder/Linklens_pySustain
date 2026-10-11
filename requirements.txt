@@ -1,3 +1,5 @@
 streamlit>=1.36
 python-whois>=0.9
+opencv-python-headless>=4.8   # NEW: reads QR codes
+Pillow>=10.0                  # NEW: opens the uploaded picture
 # flask>=3.0   (only needed if you run the Flask version, app.py)

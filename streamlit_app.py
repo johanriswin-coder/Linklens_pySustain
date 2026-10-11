@@ -19,6 +19,7 @@ import random
 import streamlit as st
 
 from analyzer import analyze
+from scanner import MAX_IMAGE_BYTES, analyze_message, analyze_qr_image   # NEW: QR + message checking
 
 st.set_page_config(page_title="LinkLens", page_icon="🔍", layout="wide")
 
@@ -365,6 +366,124 @@ def render(d: dict) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# NEW: QR code + message (SMS) checking. Everything below only ADDS; nothing above changed.
+# --------------------------------------------------------------------------- #
+EXAMPLE_MESSAGES = {
+    "fake bank KYC": "Dear customer, your SBI account will be blocked today. Update your KYC now: http://sbi-kyc-update.top/login",
+    "parcel fee": "Your parcel could not be delivered due to incomplete address. Reschedule delivery and pay a small fee of Rs 25: https://post-india-track.top/redeliver",
+    "OTP request": "Bank officer here. Please share your OTP to stop the transaction immediately.",
+    "normal message": "Hi Priya, lunch at 1pm? Menu is here: https://github.com/anthropics",
+}
+
+# Styling for the new tabs, text box and upload area (same neon look as the rest of the page).
+EXTRA_CSS = """
+<style>
+[data-baseweb="tab-list"] { gap:8px; }
+button[data-baseweb="tab"] { height:auto; padding:7px 20px; background:rgba(8,16,50,.55); border:1px solid rgba(41,227,255,.35); border-radius:999px; }
+button[data-baseweb="tab"] p { color:var(--cyan); font:600 .98rem var(--display); }
+button[data-baseweb="tab"][aria-selected="true"] { background:rgba(255,122,26,.16); border-color:var(--neon); box-shadow:0 0 18px rgba(255,122,26,.45); }
+button[data-baseweb="tab"][aria-selected="true"] p { color:var(--neon); }
+[data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display:none; }
+[data-baseweb="textarea"] { background:rgba(4,10,38,.9); border:1px solid rgba(255,122,26,.5); border-radius:10px; }
+[data-baseweb="textarea"]:focus-within { border-color:var(--neon); box-shadow:0 0 0 2px rgba(255,122,26,.35), 0 0 24px rgba(255,122,26,.5); }
+[data-baseweb="textarea"] textarea { background:transparent; color:var(--text); font-family:var(--mono); }
+[data-testid="stFileUploaderDropzone"] { background:rgba(4,10,38,.9); border:1px dashed rgba(255,122,26,.6); border-radius:12px; }
+[data-testid="stFileUploaderDropzone"] small, [data-testid="stFileUploaderDropzone"] span { color:var(--muted); }
+</style>
+"""
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def run_message_check(text: str, live: bool) -> dict:
+    """Same 10-minute cache as run_check, for pasted messages."""
+    return analyze_message(text, live=live)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def run_qr_check(data: bytes, live: bool) -> list:
+    """Read the QR code(s) in a picture and analyse what is inside. Cached by picture bytes."""
+    return analyze_qr_image(data, live=live)
+
+
+def pick_message(text: str) -> None:
+    """Button callback: fill the message box and ask the main flow to run the check."""
+    st.session_state["msg_text"] = text
+    st.session_state["msg_auto"] = True
+
+
+def link_summary_card(r: dict) -> str:
+    color = LEVEL_COLOR[r["level"]]
+    return (
+        f'<div class="ll-card" style="--c:{color}"><div class="ll-card-top"><b>{safe(r["headline"])}</b>'
+        f'<span class="ll-sev" style="color:{color}">{r["risk"]}% risk</span></div>'
+        f'<div class="ll-addr">{safe(r["url"])}</div></div>'
+    )
+
+
+def payload_card(label: str, display: str) -> str:
+    return (
+        f'<div class="ll-card ll-alt"><div class="ll-card-top"><b>QR code contains: {safe(label)}</b></div>'
+        f'<div class="ll-addr">{safe(display)}</div>'
+        '<div class="ll-tag">This is the text hidden inside the QR code. It was only read, never opened.</div></div>'
+    )
+
+
+def render_message(d: dict) -> None:
+    """Verdict banner, the message with problems marked, every reason, then one report per link."""
+    st.markdown(banner_html(d), unsafe_allow_html=True)
+
+    left, right = st.columns([1.2, 1], gap="large")
+    with left:
+        heading("Where the problems are")
+        st.markdown('<p class="ll-sub">' + ("Numbers match the cards below." if d["findings"]
+                    else "Nothing in this message needed highlighting.") + "</p>", unsafe_allow_html=True)
+        st.markdown(highlight_url(d["text"], d["findings"]), unsafe_allow_html=True)
+        if d["findings"]:
+            st.markdown(
+                '<div class="ll-legend"><span style="color:#FF3B6B">■ High</span>'
+                '<span style="color:#FFA21F">■ Medium</span><span style="color:#29E3FF">■ Low</span></div>',
+                unsafe_allow_html=True)
+        heading(f"Why this risk score ({len(d['findings'])})" if d["findings"] else "Why this risk score")
+        if not d["findings"]:
+            st.markdown('<div class="ll-card ll-good">No problems found with this message.</div>', unsafe_allow_html=True)
+        for n, f in enumerate(d["findings"], 1):
+            st.markdown(problem_card(n, f, d["text"]), unsafe_allow_html=True)
+
+    with right:
+        heading(f"Links in this message ({len(d['links'])})")
+        if not d["links"]:
+            st.markdown('<div class="ll-card ll-good">No links found in this message.</div>', unsafe_allow_html=True)
+        for item in d["links"]:
+            st.markdown(link_summary_card(item["result"]), unsafe_allow_html=True)
+        heading("Checks")
+        with st.expander(f"{len(d['passed'])} checks passed"):
+            st.markdown("\n".join(f"- {p}" for p in d["passed"]))
+        for note in d["notes"]:
+            st.caption(note)
+
+    if d["links"]:
+        heading("Link-by-link reports")
+        for i, item in enumerate(d["links"], 1):
+            r = item["result"]
+            with st.expander(f"Link {i}: {r['risk']}% risk, {r['headline']}", expanded=(i == 1)):
+                render(r)
+
+    st.caption("This is an automated estimate based on the wording of the message and how its links are written. "
+               "It can miss scams and can flag harmless messages. A low score is not a guarantee.")
+
+
+def render_qr(codes: list) -> None:
+    for i, c in enumerate(codes, 1):
+        if len(codes) > 1:
+            heading(f"QR code {i} of {len(codes)}")
+        st.markdown(payload_card(c["label"], c["display"]), unsafe_allow_html=True)
+        if c["kind"] == "message":
+            render_message(c["result"])      # the code held a whole text: judged like a message
+        else:
+            render(c["result"])              # a link, a payment request, Wi-Fi ... (same layout as a link report)
+
+
+# --------------------------------------------------------------------------- #
 # Page
 # --------------------------------------------------------------------------- #
 st.markdown(build_css(), unsafe_allow_html=True)
@@ -380,35 +499,101 @@ st.markdown(
 if "url" not in st.session_state:
     st.session_state["url"] = ""
 
-with st.form("check"):
-    c1, c2 = st.columns([6, 1.4])
-    with c1:
-        st.text_input("Link to check", key="url", label_visibility="collapsed",
-                      placeholder="Paste a link, e.g. http://paypa1-login.xyz/verify")
-    with c2:
-        submitted = st.form_submit_button("Check link", type="primary", use_container_width=True)
-    c3, c4 = st.columns([5, 2])
-    with c3:
-        st.text_input("What were you trying to find? (optional)", key="intent", label_visibility="collapsed",
-                      placeholder="Optional: what were you trying to find? e.g. track my parcel, download VLC")
-    with c4:
-        live = st.toggle("Live domain checks", value=True, help="DNS, security certificate and domain age")
+if "msg_text" not in st.session_state:
+    st.session_state["msg_text"] = ""
 
-for col, (label, example_url) in zip(st.columns(len(EXAMPLES)), EXAMPLES.items()):
-    col.button(label, key=f"ex_{label}", on_click=pick_example, args=(example_url,), use_container_width=True)
+st.markdown(EXTRA_CSS, unsafe_allow_html=True)
+tab_link, tab_qr, tab_msg = st.tabs(["🔗 Check a link", "📷 Scan a QR code", "💬 Check a message / SMS"])
 
-if submitted or st.session_state.pop("auto_run", False):
-    url = st.session_state["url"].strip()
-    if not url:
-        st.warning("Paste a link to check.")
-        st.session_state.pop("result", None)
-    else:
-        try:
-            with st.spinner("Inspecting link..."):
-                st.session_state["result"] = run_check(url, live, st.session_state.get("intent", "").strip())
-        except ValueError as err:          # bad input (empty, spaces, too long ...)
+# ---- Tab 1: the original link checker, unchanged except that it now sits inside a tab ----
+with tab_link:
+    with st.form("check"):
+        c1, c2 = st.columns([6, 1.4])
+        with c1:
+            st.text_input("Link to check", key="url", label_visibility="collapsed",
+                          placeholder="Paste a link, e.g. http://paypa1-login.xyz/verify")
+        with c2:
+            submitted = st.form_submit_button("Check link", type="primary", use_container_width=True)
+        c3, c4 = st.columns([5, 2])
+        with c3:
+            st.text_input("What were you trying to find? (optional)", key="intent", label_visibility="collapsed",
+                          placeholder="Optional: what were you trying to find? e.g. track my parcel, download VLC")
+        with c4:
+            live = st.toggle("Live domain checks", value=True, help="DNS, security certificate and domain age")
+
+    for col, (label, example_url) in zip(st.columns(len(EXAMPLES)), EXAMPLES.items()):
+        col.button(label, key=f"ex_{label}", on_click=pick_example, args=(example_url,), use_container_width=True)
+
+    if submitted or st.session_state.pop("auto_run", False):
+        url = st.session_state["url"].strip()
+        if not url:
+            st.warning("Paste a link to check.")
             st.session_state.pop("result", None)
-            st.error(str(err))
+        else:
+            try:
+                with st.spinner("Inspecting link..."):
+                    st.session_state["result"] = run_check(url, live, st.session_state.get("intent", "").strip())
+            except ValueError as err:          # bad input (empty, spaces, too long ...)
+                st.session_state.pop("result", None)
+                st.error(str(err))
 
-if st.session_state.get("result"):
-    render(st.session_state["result"])
+    if st.session_state.get("result"):
+        render(st.session_state["result"])
+
+# ---- Tab 2 (NEW): QR code ----
+with tab_qr:
+    st.markdown('<p class="ll-sub">Upload a picture or screenshot of a QR code (or use your camera). We read what is '
+                'hidden inside it and judge it. Nothing is opened.</p>', unsafe_allow_html=True)
+    q1, q2 = st.columns([3, 2])
+    with q1:
+        use_camera = st.toggle("Use my camera instead of uploading a picture", key="qr_camera_on")
+    with q2:
+        qr_live = st.toggle("Live domain checks", value=True, key="qr_live", help="DNS, security certificate and domain age")
+    if use_camera:
+        shot = st.camera_input("Point the camera at the QR code", key="qr_camera")
+    else:
+        shot = st.file_uploader("Upload a picture of the QR code", type=["png", "jpg", "jpeg", "webp", "bmp"], key="qr_file")
+    if shot is not None:
+        data = shot.getvalue()
+        if len(data) > MAX_IMAGE_BYTES:
+            st.error("That picture is larger than 8 MB. Try a smaller photo or screenshot.")
+        else:
+            try:
+                with st.spinner("Reading QR code..."):
+                    qr_results = run_qr_check(data, qr_live)
+                render_qr(qr_results)
+            except (ValueError, RuntimeError) as err:     # no QR found, not an image, packages missing ...
+                st.error(str(err))
+
+# ---- Tab 3 (NEW): whole message / SMS ----
+with tab_msg:
+    st.markdown('<p class="ll-sub">Paste a whole SMS, WhatsApp or e-mail message, link included. We check the wording '
+                'for scam tricks and check every link inside it.</p>', unsafe_allow_html=True)
+    with st.form("msg_form"):
+        st.text_area("Message to check", key="msg_text", height=170, label_visibility="collapsed",
+                     placeholder="Paste the whole message here, e.g. Dear customer, your account will be blocked. "
+                                 "Update KYC now: http://sbi-kyc-update.top/login")
+        m1, m2 = st.columns([5, 2])
+        with m1:
+            msg_submitted = st.form_submit_button("Check message", type="primary", use_container_width=True)
+        with m2:
+            msg_live = st.toggle("Live domain checks", value=True, key="msg_live", help="DNS, security certificate and domain age")
+
+    for col, (label, example_text) in zip(st.columns(len(EXAMPLE_MESSAGES)), EXAMPLE_MESSAGES.items()):
+        col.button(label, key=f"msgex_{label}", on_click=pick_message, args=(example_text,), use_container_width=True)
+
+    if msg_submitted or st.session_state.pop("msg_auto", False):
+        message = st.session_state["msg_text"].strip()
+        if not message:
+            st.warning("Paste a message to check.")
+            st.session_state.pop("msg_result", None)
+        else:
+            try:
+                with st.spinner("Checking message..."):
+                    st.session_state["msg_result"] = run_message_check(message, st.session_state.get("msg_live", True))
+            except ValueError as err:
+                st.session_state.pop("msg_result", None)
+                st.error(str(err))
+
+    if st.session_state.get("msg_result"):
+        render_message(st.session_state["msg_result"])
