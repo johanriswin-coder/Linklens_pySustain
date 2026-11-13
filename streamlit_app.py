@@ -20,8 +20,9 @@ import streamlit as st
 
 from analyzer import analyze
 from scanner import MAX_IMAGE_BYTES, analyze_message, analyze_qr_image   # NEW: QR + message checking
+from space_theme import apply_space_theme, space_hero
 
-st.set_page_config(page_title="LinkLens", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="LinkLens", page_icon="🔍", layout="wide")   apply_space_theme()
 
 # --- colours ---------------------------------------------------------------
 LEVEL_COLOR = {"safe": "#39FFB0", "caution": "#FFC531", "danger": "#FF3B6B"}
