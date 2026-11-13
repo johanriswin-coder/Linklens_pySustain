@@ -6,7 +6,7 @@ the user interacts with the page. So the flow below is simply:
     1. draw the form  ->  2. if the user submitted, call analyze()  ->  3. draw the result
 
 All the real logic lives in analyzer.py and suggestions.py (shared with the Flask version).
-This file only draws things. The look (space background, neon cards) is plain CSS
+This file only draws things. The look (space background, neon purple cards, planets) is plain CSS
 injected with st.markdown, and every card is a small HTML string built by a helper below.
 
 Run locally:   streamlit run streamlit_app.py
@@ -20,14 +20,15 @@ import streamlit as st
 
 from analyzer import analyze
 from scanner import MAX_IMAGE_BYTES, analyze_message, analyze_qr_image   # NEW: QR + message checking
-from space_theme import apply_space_theme, space_hero
+from space_theme import PLANET_MOON, PLANET_ORB, PLANET_RINGED            # planet pictures (inline SVG) live in space_theme.py
 
-st.set_page_config(page_title="LinkLens", page_icon="🔍", layout="wide")   apply_space_theme()
+st.set_page_config(page_title="LinkLens", page_icon="🔍", layout="wide")
 
 # --- colours ---------------------------------------------------------------
+# Severity colours stay "traffic-light" on purpose: green / amber / red-pink mean the same thing to everyone.
 LEVEL_COLOR = {"safe": "#39FFB0", "caution": "#FFC531", "danger": "#FF3B6B"}
-SEV_COLOR = {"high": "#FF3B6B", "medium": "#FFA21F", "low": "#29E3FF"}
-SEV_BG = {"high": "rgba(255,59,107,.28)", "medium": "rgba(255,162,31,.26)", "low": "rgba(41,227,255,.20)"}
+SEV_COLOR = {"high": "#FF3B6B", "medium": "#FFA21F", "low": "#D9B8FF"}
+SEV_BG = {"high": "rgba(255,59,107,.28)", "medium": "rgba(255,162,31,.26)", "low": "rgba(217,184,255,.22)"}
 SEV_RANK = {"high": 3, "medium": 2, "low": 1}
 
 EXAMPLES = {
@@ -41,13 +42,13 @@ EXAMPLES = {
 
 # --------------------------------------------------------------------------- #
 # Space background: three tiles of random stars (tiny SVGs) that slowly drift,
-# layered over a few blurry "nebula" gradients.
+# layered over a few blurry purple "nebula" gradients.
 # --------------------------------------------------------------------------- #
 # (tile size in px, number of stars, random seed, star colours, star radii)
 STAR_TILES = [
-    (900, 16, 11, ["#ffffff", "#ffe2c4"], [1.4, 1.8, 2.2]),     # few, big, drift fastest
-    (560, 22, 5, ["#cfe0ff", "#ffffff"], [1.0, 1.3]),
-    (360, 26, 3, ["#9fb7ff", "#ffffff"], [0.7, 0.9, 1.1]),      # many, tiny, drift slowest
+    (900, 16, 11, ["#ffffff", "#f1e6ff"], [1.4, 1.8, 2.2]),     # few, big, drift fastest
+    (560, 22, 5, ["#efe3ff", "#ffffff"], [1.0, 1.3]),
+    (360, 26, 3, ["#c9a7ff", "#ffffff"], [0.7, 0.9, 1.1]),      # many, tiny, drift slowest
 ]
 
 
@@ -65,105 +66,113 @@ def star_tile(size, count, seed, colors, radii) -> str:
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-:root { --neon:#FF7A1A; --neon-soft:rgba(255,122,26,.5); --cyan:#29E3FF; --text:#E8EEFF; --muted:#9AA9D6;
+:root { --neon:#B026FF; --neon-soft:rgba(176,38,255,.5); --neon-text:#D9A8FF; --lilac:#E4CCFF; --text:#F3EEFF; --muted:#B9AAE6;
         --display:'Chakra Petch', system-ui, sans-serif; --mono:'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; }
 
 /* ---------- space ---------- */
 .stApp {
-  background-color:#030717;
+  background-color:#05030F;
   background-image: __STARS__,
-    radial-gradient(1100px 700px at 88% -8%, rgba(56,84,235,.50), transparent 62%),
-    radial-gradient(900px 620px at -8% 28%, rgba(112,44,200,.34), transparent 62%),
-    radial-gradient(900px 520px at 62% 112%, rgba(255,122,26,.20), transparent 62%),
-    linear-gradient(180deg, #050C28 0%, #030717 100%);
+    radial-gradient(1100px 700px at 88% -8%, rgba(124,58,237,.45), transparent 62%),
+    radial-gradient(900px 620px at -8% 28%, rgba(176,38,255,.30), transparent 62%),
+    radial-gradient(900px 520px at 62% 112%, rgba(199,125,255,.16), transparent 62%),
+    linear-gradient(180deg, #0B0524 0%, #05030F 100%);
   background-size: __SIZES__, auto, auto, auto, auto;
   background-attachment: fixed;
   animation: ll-drift 240s linear infinite;
 }
 @keyframes ll-drift { from { background-position: __FROM__; } to { background-position: __TO__; } }
-@media (prefers-reduced-motion: reduce) { .stApp { animation: none; } }
+@keyframes ll-float { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(1.5deg); } }
 [data-testid="stHeader"], [data-testid="stAppViewContainer"], [data-testid="stMain"] { background: transparent; }
 #MainMenu, footer { visibility: hidden; }
 .block-container, [data-testid="stMainBlockContainer"] { max-width: 1480px; padding: 2.2rem 3rem 4rem; }
 
+/* planets that stay on screen while you scroll: a big pale moon bottom-right, a small glowing orb bottom-left */
+[data-testid="stMain"], section.main { position: relative; z-index: 1; }      /* keeps the page above the planets */
+[data-testid="stAppViewContainer"]::before { content:""; position:fixed; z-index:0; pointer-events:none;
+  right:-7vw; bottom:-12vh; width:min(30vw, 460px); aspect-ratio:1; opacity:.55;
+  background:url("__MOON__") center / contain no-repeat; animation: ll-float 22s ease-in-out infinite; }
+[data-testid="stAppViewContainer"]::after { content:""; position:fixed; z-index:0; pointer-events:none;
+  left:3vw; bottom:14vh; width:min(7vw, 90px); aspect-ratio:1;
+  background:url("__ORB__") center / contain no-repeat; animation: ll-float 11s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stApp, .ll-planet, .ll-pie, [data-testid="stAppViewContainer"]::before, [data-testid="stAppViewContainer"]::after { animation: none; }
+}
+
 /* ---------- hero ---------- */
 .ll-hero { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:4px 0 26px; }
 .ll-brand { display:flex; align-items:center; gap:10px; margin-bottom:14px; font:700 1.15rem var(--display);
-            color:var(--neon); text-shadow:0 0 14px var(--neon-soft); }
+            color:var(--neon-text); text-shadow:0 0 14px var(--neon-soft); }
 .ll-brand i { width:12px; height:12px; border-radius:50%; background:var(--neon); box-shadow:0 0 14px var(--neon); }
-.ll-title { font:700 clamp(2.2rem, 5vw, 3.8rem)/1.03 var(--display); max-width:16ch; color:var(--text);
-            text-shadow:0 0 30px rgba(90,130,255,.5); }
+.ll-title { font:700 clamp(2.2rem, 5vw, 3.8rem)/1.03 var(--display); max-width:16ch; color:#fff;
+            text-shadow:0 0 30px rgba(176,38,255,.55); }
 .ll-lede { color:var(--muted); max-width:60ch; margin:12px 0 0; font-size:1.05rem; }
-.ll-planet { position:relative; width:150px; height:150px; flex:none; margin-right:48px; }
-.ll-planet::before { content:""; position:absolute; inset:16px; border-radius:50%;
-  background:radial-gradient(circle at 32% 30%, #ffc27a, #ff7a1a 42%, #8a2f00 78%, #2a0d00 100%);
-  box-shadow:0 0 44px rgba(255,122,26,.65), inset -14px -10px 26px rgba(0,0,0,.45); }
-.ll-planet::after { content:""; position:absolute; left:-34px; right:-34px; top:50%; height:50px; margin-top:-25px;
-  border:3px solid rgba(41,227,255,.8); border-radius:50%; transform:rotate(-18deg);
-  box-shadow:0 0 18px rgba(41,227,255,.6), inset 0 0 14px rgba(41,227,255,.3); }
-@media (max-width: 900px) { .ll-planet { display:none; } .block-container, [data-testid="stMainBlockContainer"] { padding:1.4rem 1rem 3rem; } }
+.ll-planet { width:300px; height:204px; flex:none; margin-right:24px;
+             background:url("__RINGED__") center / contain no-repeat; animation: ll-float 16s ease-in-out infinite; }
+@media (max-width: 900px) { .ll-planet { display:none; } .block-container, [data-testid="stMainBlockContainer"] { padding:1.4rem 1rem 3rem; }
+  [data-testid="stAppViewContainer"]::before { width:55vw; opacity:.3; } }
 
 /* ---------- inputs, toggle, buttons ---------- */
-[data-testid="stForm"] { background:rgba(8,16,50,.66); backdrop-filter:blur(6px); border:1px solid var(--neon-soft);
-  border-radius:16px; padding:20px 22px; box-shadow:0 0 26px rgba(255,122,26,.16), inset 0 0 30px rgba(41,227,255,.05); }
-[data-baseweb="input"] { background:rgba(4,10,38,.9); border:1px solid rgba(255,122,26,.5); border-radius:10px; }
-[data-baseweb="input"]:focus-within { border-color:var(--neon); box-shadow:0 0 0 2px rgba(255,122,26,.35), 0 0 24px rgba(255,122,26,.5); }
+[data-testid="stForm"] { background:rgba(18,10,44,.66); backdrop-filter:blur(6px); border:1px solid var(--neon-soft);
+  border-radius:16px; padding:20px 22px; box-shadow:0 0 26px rgba(176,38,255,.20), inset 0 0 30px rgba(228,204,255,.05); }
+[data-baseweb="input"] { background:rgba(10,5,30,.9); border:1px solid rgba(176,38,255,.5); border-radius:10px; }
+[data-baseweb="input"]:focus-within { border-color:#E4CCFF; box-shadow:0 0 0 2px rgba(176,38,255,.4), 0 0 24px rgba(176,38,255,.55); }
 [data-baseweb="input"] input { color:var(--text); font-family:var(--mono); }
-[data-testid="stFormSubmitButton"] button { background:linear-gradient(135deg,#FF9A3D,#FF6A00); border:0; border-radius:10px;
-  box-shadow:0 0 24px rgba(255,122,26,.6); transition:box-shadow .15s, transform .15s; }
-[data-testid="stFormSubmitButton"] button:hover { box-shadow:0 0 38px rgba(255,122,26,.95); transform:translateY(-1px); }
-[data-testid="stFormSubmitButton"] button p { color:#1A0A00; font:700 1.02rem var(--display); }
-[data-testid="stButton"] button { background:rgba(41,227,255,.06); border:1px solid rgba(41,227,255,.7); border-radius:999px;
+[data-testid="stFormSubmitButton"] button { background:linear-gradient(135deg,#8B3DFF,#B026FF); border:1px solid rgba(255,255,255,.3); border-radius:10px;
+  box-shadow:0 0 24px rgba(176,38,255,.6); transition:box-shadow .15s, transform .15s; }
+[data-testid="stFormSubmitButton"] button:hover { box-shadow:0 0 38px rgba(199,125,255,.95); transform:translateY(-1px); }
+[data-testid="stFormSubmitButton"] button p { color:#fff; font:700 1.02rem var(--display); }
+[data-testid="stButton"] button { background:rgba(228,204,255,.06); border:1px solid rgba(228,204,255,.6); border-radius:999px;
   transition:box-shadow .15s, background .15s; }
-[data-testid="stButton"] button:hover { background:rgba(41,227,255,.16); box-shadow:0 0 18px rgba(41,227,255,.55); }
-[data-testid="stButton"] button p { color:var(--cyan); font:500 .9rem var(--mono); }
-[data-testid="stExpander"] { background:rgba(8,16,50,.66); border:1px solid rgba(41,227,255,.4); border-radius:12px; }
+[data-testid="stButton"] button:hover { background:rgba(176,38,255,.2); box-shadow:0 0 18px rgba(199,125,255,.6); }
+[data-testid="stButton"] button p { color:var(--lilac); font:500 .9rem var(--mono); }
+[data-testid="stExpander"] { background:rgba(18,10,44,.66); border:1px solid rgba(176,38,255,.4); border-radius:12px; }
 
 /* ---------- result cards ---------- */
-.ll-h { display:flex; align-items:center; gap:12px; margin:30px 0 8px; font:700 1.5rem var(--display); color:var(--text); }
+.ll-h { display:flex; align-items:center; gap:12px; margin:30px 0 8px; font:700 1.5rem var(--display); color:#fff; }
 .ll-h::before { content:""; width:6px; height:1.15em; border-radius:3px; background:var(--neon); box-shadow:0 0 12px var(--neon); }
 .ll-sub { color:var(--muted); margin:0 0 14px; }
 .ll-banner { display:flex; flex-wrap:wrap; align-items:center; gap:26px 54px; padding:28px 38px; margin-top:26px; border-radius:18px;
-  background:linear-gradient(135deg, rgba(14,28,84,.86), rgba(6,12,42,.9));
+  background:linear-gradient(135deg, rgba(34,14,80,.88), rgba(10,5,30,.92));
   border:1px solid color-mix(in srgb, var(--lvl) 65%, transparent);
-  box-shadow:0 0 34px color-mix(in srgb, var(--lvl) 32%, transparent), inset 0 0 44px rgba(41,227,255,.05); }
+  box-shadow:0 0 34px color-mix(in srgb, var(--lvl) 32%, transparent), inset 0 0 44px rgba(228,204,255,.05); }
 .ll-pie { width:250px; height:250px; flex:none; filter:drop-shadow(0 0 20px color-mix(in srgb, var(--lvl) 55%, transparent));
           animation:ll-pop .9s cubic-bezier(.2,.9,.3,1) both; }
 @keyframes ll-pop { from { transform:rotate(-140deg) scale(.82); opacity:0; } to { transform:none; opacity:1; } }
-@media (prefers-reduced-motion: reduce) { .ll-pie { animation:none; } }
 .ll-verdict { flex:1 1 320px; min-width:0; }
 .ll-pct { font:700 clamp(4.4rem, 11vw, 7rem)/.9 var(--display); color:var(--lvl); text-shadow:0 0 36px color-mix(in srgb, var(--lvl) 60%, transparent); }
 .ll-pct small { font-size:.3em; margin-left:8px; color:var(--muted); text-shadow:none; font-weight:500; }
-.ll-headline { margin:12px 0 0; font:700 clamp(1.5rem, 3vw, 2.2rem)/1.12 var(--display); color:var(--text); }
-.ll-advice { margin:12px 0 0; color:#C3CFF2; max-width:62ch; }
+.ll-headline { margin:12px 0 0; font:700 clamp(1.5rem, 3vw, 2.2rem)/1.12 var(--display); color:#fff; }
+.ll-advice { margin:12px 0 0; color:#D8CCF5; max-width:62ch; }
 .ll-legend { display:flex; flex-wrap:wrap; gap:6px 22px; margin-top:16px; color:var(--muted); font-size:.92rem; }
 .ll-legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:7px; vertical-align:-1px; }
 
-.ll-card { margin:0 0 12px; padding:16px 18px; border-radius:12px; background:rgba(8,16,50,.7); backdrop-filter:blur(5px);
-  border:1px solid rgba(120,150,255,.22); border-left:4px solid var(--c, var(--neon));
+.ll-card { margin:0 0 12px; padding:16px 18px; border-radius:12px; background:rgba(18,10,44,.72); backdrop-filter:blur(5px);
+  border:1px solid rgba(176,120,255,.28); border-left:4px solid var(--c, var(--neon));
   box-shadow:0 0 16px color-mix(in srgb, var(--c, var(--neon)) 18%, transparent); }
 .ll-card:hover { box-shadow:0 0 24px color-mix(in srgb, var(--c, var(--neon)) 40%, transparent); }
 .ll-card-top { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-.ll-card-top b { font:600 1.08rem var(--display); color:var(--text); }
-.ll-card p { margin:8px 0 0; color:#B5C2EA; }
+.ll-card-top b { font:600 1.08rem var(--display); color:#fff; }
+.ll-card p { margin:8px 0 0; color:#D2C6F0; }
 .ll-badge { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; flex:none;
-            font:700 .95rem var(--display); color:#050B1F; }
+            font:700 .95rem var(--display); color:#0A0520; }
 .ll-sev { margin-left:auto; padding:1px 10px; border:1px solid; border-radius:999px; font-size:.78rem; font-weight:600; }
 .ll-found { margin-top:10px; color:var(--muted); font-size:.86rem; display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; }
-.ll-code { font:600 .86rem var(--mono); color:var(--neon); background:rgba(255,122,26,.1); border:1px solid rgba(255,122,26,.45);
+.ll-code { font:600 .86rem var(--mono); color:var(--neon-text); background:rgba(176,38,255,.14); border:1px solid rgba(176,38,255,.55);
            padding:1px 8px; border-radius:5px; overflow-wrap:anywhere; }
 .ll-good { --c:#39FFB0; color:#BFFFE6; }
 .ll-alt { --c:var(--neon); border-top:3px solid var(--neon); }
 .ll-ok { margin-left:auto; padding:1px 10px; border:1px solid #39FFB0; border-radius:999px; color:#39FFB0; font-size:.78rem; font-weight:600; }
 .ll-tag { margin-top:6px; color:var(--muted); font-size:.84rem; }
-.ll-addr { margin-top:8px; font:600 .9rem var(--mono); color:var(--neon); overflow-wrap:anywhere; }
+.ll-addr { margin-top:8px; font:600 .9rem var(--mono); color:var(--neon-text); overflow-wrap:anywhere; }
 a.ll-open { display:inline-block; margin-top:12px; padding:8px 18px; border-radius:9px; text-decoration:none; font-weight:700;
-  color:#1A0A00; background:linear-gradient(135deg,#FF9A3D,#FF6A00); box-shadow:0 0 16px rgba(255,122,26,.55); }
-a.ll-open:hover { box-shadow:0 0 28px rgba(255,122,26,.95); }
-.ll-tips { margin:4px 0 0; padding-left:20px; color:#B5C2EA; }
+  color:#fff; background:linear-gradient(135deg,#8B3DFF,#B026FF); box-shadow:0 0 16px rgba(176,38,255,.55); }
+a.ll-open:hover { box-shadow:0 0 28px rgba(199,125,255,.95); }
+.ll-tips { margin:4px 0 0; padding-left:20px; color:#D2C6F0; }
 .ll-tips li { margin:5px 0; }
 .ll-tips li::marker { color:var(--neon); }
-.ll-foot { color:#7F90C4; font-size:.84rem; margin-top:10px; }
+.ll-foot { color:#9D8FCB; font-size:.84rem; margin-top:10px; }
 </style>
 """
 
@@ -173,8 +182,9 @@ def build_css() -> str:
     sizes = ", ".join(f"{t[0]}px {t[0]}px" for t in STAR_TILES)
     start = ", ".join(["0 0"] * (len(STAR_TILES) + 4))
     end = ", ".join([f"-{t[0]}px {t[0]}px" for t in STAR_TILES] + ["0 0"] * 4)   # drift exactly one tile = seamless loop
-    return CSS.replace("__STARS__", ", ".join(tiles)).replace("__SIZES__", sizes) \
-              .replace("__FROM__", start).replace("__TO__", end)
+    return (CSS.replace("__STARS__", ", ".join(tiles)).replace("__SIZES__", sizes)
+               .replace("__FROM__", start).replace("__TO__", end)
+               .replace("__RINGED__", PLANET_RINGED).replace("__MOON__", PLANET_MOON).replace("__ORB__", PLANET_ORB))
 
 
 # --------------------------------------------------------------------------- #
@@ -216,14 +226,14 @@ def highlight_url(url: str, findings: list) -> str:
             worst = max((findings[x]["severity"] for x in key), key=SEV_RANK.get)
             parts.append(
                 f'<mark style="background:{SEV_BG[worst]};border-bottom:3px solid {SEV_COLOR[worst]};'
-                f'color:#E8EEFF;padding:2px 1px;border-radius:3px;box-shadow:0 0 12px {SEV_BG[worst]}">{text}</mark>'
+                f'color:#F3EEFF;padding:2px 1px;border-radius:3px;box-shadow:0 0 12px {SEV_BG[worst]}">{text}</mark>'
             )
         else:
-            parts.append(f'<span style="color:#B6C3EA">{text}</span>')
+            parts.append(f'<span style="color:#CBBDEB">{text}</span>')
         for idx, end in first_end.items():           # numbered badge after the first mark of each finding
             if end == j:
                 parts.append(
-                    f'<sup style="background:{SEV_COLOR[findings[idx]["severity"]]};color:#050B1F;'
+                    f'<sup style="background:{SEV_COLOR[findings[idx]["severity"]]};color:#0A0520;'
                     f'font:700 .62rem sans-serif;padding:2px 5px;border-radius:999px;margin:0 5px 0 2px">{idx + 1}</sup>'
                 )
         i = j
@@ -231,8 +241,8 @@ def highlight_url(url: str, findings: list) -> str:
     # one single line, no indentation: Streamlit's markdown would turn indented lines into a code block
     return (
         '<div style="font-family:\'JetBrains Mono\',ui-monospace,Menlo,Consolas,monospace;font-size:1.08rem;line-height:2.1;'
-        'overflow-wrap:anywhere;background:rgba(6,12,44,.85);border:1px solid rgba(41,227,255,.4);border-radius:14px;'
-        'padding:18px 20px;box-shadow:0 0 22px rgba(41,227,255,.14), inset 0 0 30px rgba(41,227,255,.05)">'
+        'overflow-wrap:anywhere;background:rgba(10,5,30,.85);border:1px solid rgba(176,38,255,.45);border-radius:14px;'
+        'padding:18px 20px;box-shadow:0 0 22px rgba(176,38,255,.18), inset 0 0 30px rgba(228,204,255,.05)">'
         + "".join(parts) + "</div>"
     )
 
@@ -258,13 +268,13 @@ def pie_img(risk: int, color: str) -> str:
 
     labels = ""
     if risk >= 12:
-        labels += label(end / 2, f"{risk}%", "#050B1F")
+        labels += label(end / 2, f"{risk}%", "#0A0520")
     if risk <= 88:
-        labels += label(end + (360 - end) / 2, f"{100 - risk}%", "#C9D6FF")
+        labels += label(end + (360 - end) / 2, f"{100 - risk}%", "#EADFFF")
 
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="-8 -8 216 216" width="260" height="260">'
-           f'<circle cx="100" cy="100" r="{R}" fill="#14275C" stroke="#2B428F" stroke-width="1.5"/>'
-           f'<path d="{path}" fill="{color}" stroke="#050B1F" stroke-width="2" stroke-linejoin="round"/>{labels}</svg>')
+           f'<circle cx="100" cy="100" r="{R}" fill="#2A1457" stroke="#6B3FD0" stroke-width="1.5"/>'
+           f'<path d="{path}" fill="{color}" stroke="#0A0520" stroke-width="2" stroke-linejoin="round"/>{labels}</svg>')
     uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
     return f'<img class="ll-pie" src="{uri}" alt="Pie chart: {risk}% risk, {100 - risk}% no sign of threat">'
 
@@ -276,7 +286,7 @@ def banner_html(d: dict) -> str:
         f'<div class="ll-verdict"><div class="ll-pct">{d["risk"]}<small>% risk</small></div>'
         f'<div class="ll-headline">{safe(d["headline"])}</div><p class="ll-advice">{safe(d["advice"])}</p>'
         f'<div class="ll-legend"><span><i style="background:{color}"></i>Risk {d["risk"]}%</span>'
-        f'<span><i style="background:#14275C;border:1px solid #3A55B0"></i>No sign of threat {100 - d["risk"]}%</span>'
+        f'<span><i style="background:#2A1457;border:1px solid #6B3FD0"></i>No sign of threat {100 - d["risk"]}%</span>'
         f'</div></div></div>'
     )
 
@@ -336,7 +346,7 @@ def render(d: dict) -> None:
         if d["findings"]:
             st.markdown(
                 '<div class="ll-legend"><span style="color:#FF3B6B">■ High</span>'
-                '<span style="color:#FFA21F">■ Medium</span><span style="color:#29E3FF">■ Low</span></div>',
+                '<span style="color:#FFA21F">■ Medium</span><span style="color:#D9B8FF">■ Low</span></div>',
                 unsafe_allow_html=True)
         heading(f"Every problem found ({len(d['findings'])})" if d["findings"] else "Every problem found")
         if not d["findings"]:
@@ -376,19 +386,19 @@ EXAMPLE_MESSAGES = {
     "normal message": "Hi Priya, lunch at 1pm? Menu is here: https://github.com/anthropics",
 }
 
-# Styling for the new tabs, text box and upload area (same neon look as the rest of the page).
+# Styling for the new tabs, text box and upload area (same neon purple look as the rest of the page).
 EXTRA_CSS = """
 <style>
 [data-baseweb="tab-list"] { gap:8px; }
-button[data-baseweb="tab"] { height:auto; padding:7px 20px; background:rgba(8,16,50,.55); border:1px solid rgba(41,227,255,.35); border-radius:999px; }
-button[data-baseweb="tab"] p { color:var(--cyan); font:600 .98rem var(--display); }
-button[data-baseweb="tab"][aria-selected="true"] { background:rgba(255,122,26,.16); border-color:var(--neon); box-shadow:0 0 18px rgba(255,122,26,.45); }
-button[data-baseweb="tab"][aria-selected="true"] p { color:var(--neon); }
+button[data-baseweb="tab"] { height:auto; padding:7px 20px; background:rgba(18,10,44,.55); border:1px solid rgba(228,204,255,.35); border-radius:999px; }
+button[data-baseweb="tab"] p { color:var(--lilac); font:600 .98rem var(--display); }
+button[data-baseweb="tab"][aria-selected="true"] { background:rgba(176,38,255,.22); border-color:var(--neon); box-shadow:0 0 18px rgba(176,38,255,.55); }
+button[data-baseweb="tab"][aria-selected="true"] p { color:#fff; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display:none; }
-[data-baseweb="textarea"] { background:rgba(4,10,38,.9); border:1px solid rgba(255,122,26,.5); border-radius:10px; }
-[data-baseweb="textarea"]:focus-within { border-color:var(--neon); box-shadow:0 0 0 2px rgba(255,122,26,.35), 0 0 24px rgba(255,122,26,.5); }
+[data-baseweb="textarea"] { background:rgba(10,5,30,.9); border:1px solid rgba(176,38,255,.5); border-radius:10px; }
+[data-baseweb="textarea"]:focus-within { border-color:#E4CCFF; box-shadow:0 0 0 2px rgba(176,38,255,.4), 0 0 24px rgba(176,38,255,.55); }
 [data-baseweb="textarea"] textarea { background:transparent; color:var(--text); font-family:var(--mono); }
-[data-testid="stFileUploaderDropzone"] { background:rgba(4,10,38,.9); border:1px dashed rgba(255,122,26,.6); border-radius:12px; }
+[data-testid="stFileUploaderDropzone"] { background:rgba(10,5,30,.9); border:1px dashed rgba(176,38,255,.6); border-radius:12px; }
 [data-testid="stFileUploaderDropzone"] small, [data-testid="stFileUploaderDropzone"] span { color:var(--muted); }
 </style>
 """
@@ -442,7 +452,7 @@ def render_message(d: dict) -> None:
         if d["findings"]:
             st.markdown(
                 '<div class="ll-legend"><span style="color:#FF3B6B">■ High</span>'
-                '<span style="color:#FFA21F">■ Medium</span><span style="color:#29E3FF">■ Low</span></div>',
+                '<span style="color:#FFA21F">■ Medium</span><span style="color:#D9B8FF">■ Low</span></div>',
                 unsafe_allow_html=True)
         heading(f"Why this risk score ({len(d['findings'])})" if d["findings"] else "Why this risk score")
         if not d["findings"]:
