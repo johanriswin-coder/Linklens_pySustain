@@ -6,7 +6,7 @@ the user interacts with the page. So the flow below is simply:
     1. draw the form  ->  2. if the user submitted, call analyze()  ->  3. draw the result
 
 All the real logic lives in analyzer.py and suggestions.py (shared with the Flask version).
-This file only draws things. The look (space background, neon purple cards, planets) is plain CSS
+This file only draws things. The look (3D space from space3d.py, neon purple cards) is plain CSS
 injected with st.markdown, and every card is a small HTML string built by a helper below.
 
 Run locally:   streamlit run streamlit_app.py
@@ -20,7 +20,8 @@ import streamlit as st
 
 from analyzer import analyze
 from scanner import MAX_IMAGE_BYTES, analyze_message, analyze_qr_image   # NEW: QR + message checking
-from space_theme import PLANET_MOON, PLANET_ORB, PLANET_RINGED            # planet pictures (inline SVG) live in space_theme.py
+from space_theme import PLANET_MOON, PLANET_ORB, PLANET_RINGED            # flat planet pictures (fallback if 3D is unavailable)
+from space3d import render_space_3d                                      # the real-time 3D sky (stars + planets)
 
 st.set_page_config(page_title="LinkLens", page_icon="🔍", layout="wide")
 
@@ -95,6 +96,18 @@ CSS = """
 [data-testid="stAppViewContainer"]::after { content:""; position:fixed; z-index:0; pointer-events:none;
   left:3vw; bottom:14vh; width:min(7vw, 90px); aspect-ratio:1;
   background:url("__ORB__") center / contain no-repeat; animation: ll-float 11s ease-in-out infinite; }
+
+/* When the 3D sky is running it adds the class "gl-on" to the page: then the flat 2D stars and planets step aside */
+.gl-on .stApp {
+  background-image:
+    radial-gradient(1100px 700px at 88% -8%, rgba(124,58,237,.45), transparent 62%),
+    radial-gradient(900px 620px at -8% 28%, rgba(176,38,255,.30), transparent 62%),
+    radial-gradient(900px 520px at 62% 112%, rgba(199,125,255,.16), transparent 62%),
+    linear-gradient(180deg, #0B0524 0%, #05030F 100%);
+  background-size: auto; background-position: 0 0; animation: none;
+}
+.gl-on [data-testid="stAppViewContainer"]::before, .gl-on [data-testid="stAppViewContainer"]::after { display: none; }
+.gl-on .ll-planet { visibility: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   .stApp, .ll-planet, .ll-pie, [data-testid="stAppViewContainer"]::before, [data-testid="stAppViewContainer"]::after { animation: none; }
@@ -498,6 +511,7 @@ def render_qr(codes: list) -> None:
 # Page
 # --------------------------------------------------------------------------- #
 st.markdown(build_css(), unsafe_allow_html=True)
+render_space_3d()      # the 3D sky: thousands of twinkling stars, endless drift, two shaded planets
 
 st.markdown(
     '<div class="ll-hero"><div><div class="ll-brand"><i></i>LinkLens</div>'
